@@ -831,6 +831,13 @@ void SetupMQTTClient() {
             MQTTclient.announce("EV Energy Charged",       "sensor", EN_TOTAL);
             MQTTclient.announce("EV Total Energy Charged", "sensor", EN_TOTAL);
         }
+        if (CircuitMeter.Type) {
+            MQTTclient.announce("Circuit Import Active Energy", "sensor", EN_TOTAL);
+            MQTTclient.announce("Circuit Export Active Energy", "sensor", EN_TOTAL);
+            MQTTclient.announce("Circuit Power", "sensor",
+                ", \"device_class\":\"power\", \"unit_of_measurement\":\"W\", \"state_class\":\"measurement\"");
+            MQTTclient.announce("Circuit Total Energy", "sensor", EN_TOTAL);
+        }
     }
 
     // sensor entities without device_class or unit_of_measurement
@@ -951,6 +958,12 @@ void mqttPublishData() {
             mqPubI("/CircuitCurrentL1", CircuitMeter.Irms[0], false, 0);
             mqPubI("/CircuitCurrentL2", CircuitMeter.Irms[1], false, 0);
             mqPubI("/CircuitCurrentL3", CircuitMeter.Irms[2], false, 0);
+            if (CircuitMeter.Import_active_energy) //only export when not zero, because after boot it is zero = empty value
+                mqPubI("/CircuitImportActiveEnergy", CircuitMeter.Import_active_energy, false, 0);
+            if (CircuitMeter.Export_active_energy) //only export when not zero, because after boot it is zero = empty value
+                mqPubI("/CircuitExportActiveEnergy", CircuitMeter.Export_active_energy, false, 0);
+            mqPubI("/CircuitPower", CircuitMeter.PowerMeasured, false, 0);
+            mqPubI("/CircuitTotalEnergy", CircuitMeter.Energy, false, 0);
         }
         mqPubI("/ESPTemp", TempEVSE, false, 0);
         mqPubS("/Mode", AccessStatus == OFF ? "Off" : AccessStatus == PAUSE ? "Pause" : Mode > 3 ? "N/A" : StrMode[Mode], true, 0);
@@ -993,7 +1006,8 @@ void mqttPublishData() {
         if (EVMeter.Type) {
             mqPubI("/EVChargePower", EVMeter.PowerMeasured, false, 0);
             mqPubI("/EVEnergyCharged", EVMeter.EnergyCharged, true, 0);
-            mqPubI("/EVTotalEnergyCharged", EVMeter.Energy, false, 0);
+            if (EVMeter.Energy) //only export when not zero, because after boot it is zero = empty value
+                mqPubI("/EVTotalEnergyCharged", EVMeter.Energy, false, 0);
         }
         if (homeBatteryLastUpdate)
             mqPubI("/HomeBatteryCurrent", homeBatteryCurrent, false, 0);
@@ -1056,7 +1070,8 @@ void mqttSmartEVSEPublishData() {
     if (EVMeter.Type) {
         MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/EVChargePower", String(EVMeter.PowerMeasured), false, 0);
         MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/EVEnergyCharged", String(EVMeter.EnergyCharged), true, 0);
-        MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/EVImportActiveEnergy", String(EVMeter.Import_active_energy), false, 0);
+        if (EVMeter.Import_active_energy) //only export when not zero, because after boot it is zero = empty value
+            MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/EVImportActiveEnergy", String(EVMeter.Import_active_energy), false, 0);
     }
     MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/PairingPin", PairingPin, true, 0);
     MQTTclientSmartEVSE.publish(MQTTSmartEVSEprefix + "/MaxCurrent", String(MaxCurrent * 10), true, 0);
@@ -1694,7 +1709,8 @@ bool handle_URI(struct mg_connection *c, struct mg_http_message *hm,  webServerR
             doc["ev_meter"]["host"] = strlen(EVMeter.DeviceHostName) > 0 ? EVMeter.DeviceHostName : "Not Set";
         }
         doc["ev_meter"]["import_active_power"] = EVMeter.PowerMeasured; // Watt
-        doc["ev_meter"]["total_wh"] = EVMeter.Energy; // Wh
+        if (EVMeter.Energy) //only export when not zero, because after boot it is zero = empty value
+            doc["ev_meter"]["total_wh"] = EVMeter.Energy; // Wh
         doc["ev_meter"]["charged_wh"] = EVMeter.EnergyCharged; // Wh
         doc["ev_meter"]["currents"]["TOTAL"] = EVMeter.Irms[0] + EVMeter.Irms[1] + EVMeter.Irms[2];
         doc["ev_meter"]["currents"]["L1"] = EVMeter.Irms[0];
@@ -3266,7 +3282,7 @@ void setup() {
 bool fwNeedsUpdate(char * version) {
     // version NEEDS to be in the format: vx.y.z[-RCa] where x, y, z, a are digits, multiple digits are allowed.
     // valid versions are v3.6.10   v3.17.0-RC13
-    int latest_major, latest_minor, latest_patch, latest_rc, cur_major, cur_minor, cur_patch, cur_rc;
+    int latest_major = 0, latest_minor = 0, latest_patch = 0, latest_rc = 0, cur_major = 0, cur_minor = 0, cur_patch = 0, cur_rc = 0;
     int hit = sscanf(version, "v%i.%i.%i-RC%i", &latest_major, &latest_minor, &latest_patch, &latest_rc);
     _LOG_A("Firmware version detection hit=%i, LATEST version detected=v%i.%i.%i-RC%i.\n", hit, latest_major, latest_minor, latest_patch, latest_rc);
     int hit2 = sscanf(VERSION, "v%i.%i.%i-RC%i", &cur_major, &cur_minor, &cur_patch, &cur_rc);
@@ -3330,6 +3346,7 @@ static void homewizard_task(void *parameter) {
             MainsMeter.Export_active_energy = evdata.second[4];
             MainsMeter.PowerMeasured = evdata.second[5];
             MainsMeter.UpdateEnergies();
+            MainsMeter.UpdateCapacity();
             _LOG_A("Updated MainsMeter with Irms: %d, %d, %d, ActiveEnergyImport: %u, ActiveEnergyExport: %u, PowerMeasured: %u.\n", evdata.second[0], evdata.second[1], evdata.second[2], evdata.second[3], evdata.second[4], evdata.second[5]);
         }
     }
@@ -3474,7 +3491,7 @@ void loop() {
                 if (getLatestVersion(String(String(OWNER_FACT) + "/" + String(REPO_FACT)), "", version)) {
                     if (fwNeedsUpdate(version)) {
                         _LOG_A("Firmware reports it needs updating, will update in %i seconds\n", FW_UPDATE_DELAY);
-                        asprintf(&downloadUrl, "%s/fact_firmware.signed.bin", FW_DOWNLOAD_PATH); //will be freed in FirmwareUpdate() ; format: http://s3.com/fact_firmware.debug.signed.bin
+                        asprintf(&downloadUrl, "%s/%s_firmware.signed.bin", FW_DOWNLOAD_PATH, OWNER_FACT); //will be freed in FirmwareUpdate() ; format: http://smartevse-3.s3.eu-west-2.amazonaws.com/SmartEVSE_firmware.signed.bin
                     } else {
                         _LOG_A("Firmware reports it needs NO update!\n");
                         firmwareUpdateTimer = random(FW_UPDATE_DELAY + 36000, 0xffff);  // at least 10 hours in between checks
@@ -3484,7 +3501,7 @@ void loop() {
                 if (getLatestVersion(String(String(OWNER_FACT) + "/" + String(REPO_FACT)), "", version)) { // recheck version info
                     if (fwNeedsUpdate(version)) {
                         _LOG_A("Firmware reports it needs updating, starting update NOW!\n");
-                        asprintf(&downloadUrl, "%s/fact_firmware.signed.bin", FW_DOWNLOAD_PATH); //will be freed in FirmwareUpdate() ; format: http://s3.com/fact_firmware.debug.signed.bin
+                        asprintf(&downloadUrl, "%s/%s_firmware.signed.bin", FW_DOWNLOAD_PATH, OWNER_FACT); //will be freed in FirmwareUpdate() ; format: http://smartevse-3.s3.eu-west-2.amazonaws.com/SmartEVSE_firmware.signed.bin
                         RunFirmwareUpdate();
                     } else {
                         _LOG_A("Firmware changed its mind, NOW it reports it needs NO update!\n");

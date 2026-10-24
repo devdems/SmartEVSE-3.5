@@ -1253,7 +1253,7 @@ uint8_t getMenuItems (void) {
     MenuItems[m++] = MENU_RCMON;                                                // Residual Current Monitor on RCM (0:Disable / 1:Enable)
     MenuItems[m++] = MENU_RFIDREADER;                                           // RFID Reader connected to SW (0:Disable / 1:Enable / 2:Learn / 3:Delete / 4:Delate All)
     MenuItems[m++] = MENU_WIFI;                                                 // Wifi Disabled / Enabled / Portal
-    if (getItemValue(MENU_WIFI)  == 1) {                                        // only show AutoUpdate menu if Wifi enabled
+    if (getItemValue(MENU_WIFI) == 1 || NetworkConnected()) {                   // Show net-dependent items if WiFi enabled, or any network (incl. Ethernet) has an IP
         MenuItems[m++] = MENU_AUTOUPDATE;                                       // Firmware automatic update Disabled / Enabled
         MenuItems[m++] = MENU_PAIRING;                                          // Generate PairingPin for SmartEVSE App
         MenuItems[m++] = MENU_APPSERVER;                                        // App Server (0:Disable / 1:Enable)
@@ -1449,12 +1449,13 @@ void GLCDMenu(uint8_t Buttons) {
             if (LCDNav == MENU_EXIT) {                                          // Exit Main Menu
                 LCDNav = 0;
                 SubMenu = 0;
-                clearErrorFlags(!(NO_ERROR));                                           // Clear All Errors when exiting the Main Menu
+                clearErrorFlags(0xFF);                                          // Clear All Errors when exiting the Main Menu
                 TestState = 0;                                                  // Clear TestState
                 setChargeDelay(0);                                              // Clear ChargeDelay
                 setSolarStopTimer(0);                                           // Disable Solar Timer
                 GLCD();
-                write_settings();                                               // Write immediately to nvs when exiting menu
+                write_settings();                                               // Mark all settings dirty (rate-limited) ...
+                shadowPrefs.loop(true);                                         // ... and force an immediate NVS write, independent of the 60s rate-limit timer
                 ButtonRelease = 2;                                              // Skip updating of the LCD 
                 PairingPin = "";                                                // Reset PairingPin
             }
@@ -1591,8 +1592,8 @@ static constexpr uint8_t BMP_HEADER[62] = {
     0, 0, 0, 0,                                        // Important colors
 
     // Color palette
-    0xFF, 0xFF, 0xFF, 0x00,                            // White (0)
-    0x00, 0x00, 0xFF, 0x00,                            // Red   (1)
+    0xC8, 0xCC, 0xC6, 0x00,                            // LCD background (0) - light STN grey-green
+    0x3C, 0x42, 0x3C, 0x00,                            // LCD pixels    (1) - dark grey, like a real STN segment display
 };
 
 /**

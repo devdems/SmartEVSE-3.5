@@ -1410,9 +1410,10 @@ void Timer1S_singlerun(void) {
     }
 
     // While ChargeDelay is counting down (waiting to start charging), keep re-checking solar availability.
-    // If solar power has disappeared during the countdown, re-set the LESS_6A error to restart the wait cycle.
+    // If solar power has disappeared during the countdown, re-set the LESS_6A error and restart the wait timer,
     if (ChargeDelay && !(ErrorFlags & LESS_6A) && Mode == MODE_SOLAR && (LoadBl < 2) && !IsCurrentAvailable()) {
         setErrorFlags(LESS_6A);
+        setChargeDelay(CHARGEDELAY);
         _LOG_I("Solar power no longer available during ChargeDelay, restarting wait.\n");
     }
 
@@ -1800,7 +1801,7 @@ uint8_t processAllNodeStates(uint8_t NodeNr) {
             write = 1;
         }
     } else {
-        // Re-set LESS_6A on Node if solar power disappeared during ChargeDelay countdown.
+        // Re-set LESS_6A (and resulting CHARGEDELAY wait) on Node if solar power disappeared during countdown.
         if (Mode == MODE_SOLAR && BalancedState[NodeNr] == STATE_B1 && !(BalancedError[NodeNr] & LESS_6A)) {
             BalancedError[NodeNr] |= LESS_6A;
             write = 1;
@@ -1897,69 +1898,6 @@ uint8_t processAllNodeStates(uint8_t NodeNr) {
     }
 
     return write;
-}
-
-
-bool ReadIrms(char *SerialBuf) {
-    char *ret;
-    char token[64];
-    strncpy(token, "Irms:", sizeof(token));
-    //Irms:011,312,123,124 means: the meter on address 11(dec) has Irms[0] 312 dA, Irms[1] of 123 dA, Irms[2] of 124 dA.
-    ret = strstr(SerialBuf, token);
-    if (ret != NULL) {
-        short unsigned int Address;
-        int16_t Irms[3];
-        int n = sscanf(ret,"Irms:%03hu,%hi,%hi,%hi", &Address, &Irms[0], &Irms[1], &Irms[2]);
-        if (n == 4) {   //success
-            if (Address == MainsMeter.Address) {
-                for (int x = 0; x < 3; x++)
-                    MainsMeter.Irms[x] = Irms[x];
-                MainsMeter.setTimeout(COMM_TIMEOUT);
-                CalcIsum();
-            } else if (Address == EVMeter.Address) {
-                for (int x = 0; x < 3; x++)
-                    EVMeter.Irms[x] = Irms[x];
-                EVMeter.setTimeout(COMM_EVTIMEOUT);
-                EVMeter.CalcImeasured();
-            } else if (Address == CircuitMeter.Address) {
-                for (int x = 0; x < 3; x++)
-                    CircuitMeter.Irms[x] = Irms[x];
-                CircuitMeter.setTimeout(COMM_CIRCTIMEOUT);
-                CircuitMeter.CalcImeasured();
-            }
-            return true; //success
-        } else {
-            _LOG_A("Received corrupt %s, n=%d, message:%s.\n", token, n, SerialBuf);
-        }
-    }
-    return false; //did not parse
-}
-
-
-bool ReadPowerMeasured(char *SerialBuf) {
-    char *ret;
-    char token[64];
-    strncpy(token, "PowerMeasured:", sizeof(token));
-    //printf("@PowerMeasured:%03u,%d\n", Address, PowerMeasured);
-    ret = strstr(SerialBuf, token);
-    if (ret != NULL) {
-        short unsigned int Address;
-        int16_t PowerMeasured;
-        int n = sscanf(ret,"PowerMeasured:%03hu,%hi", &Address, &PowerMeasured);
-        if (n == 2) {   //success
-            if (Address == MainsMeter.Address) {
-                MainsMeter.PowerMeasured = PowerMeasured;
-            } else if (Address == EVMeter.Address) {
-                EVMeter.PowerMeasured = PowerMeasured;
-            } else if (Address == CircuitMeter.Address) {
-                CircuitMeter.PowerMeasured = PowerMeasured;
-            }
-            return true; //success
-        } else {
-            _LOG_A("Received corrupt %s, n=%d, message from WCH:%s.\n", token, n, SerialBuf);
-        }
-    }
-    return false; //did not parse
 }
 
 
